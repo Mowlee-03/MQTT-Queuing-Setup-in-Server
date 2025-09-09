@@ -1,0 +1,19 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model rtsdata {
+  id   Int     @id @default(autoincrement())
+  data String? @db.VarChar(255)
+}
+
+model nodedata  {
+  id    Int   @id @default(autoincrement())
+  data  Json?
+}

@@ -22,13 +22,25 @@ async function startBridge() {
     client.subscribe("iot/device"); // catch IoT device 
   });
 
-  client.on("message", (topic, message) => {
-    const payload = JSON.stringify({ topic, data: message.toString(), ts: Date.now() });
-    console.log(`📥 MQTT [${topic}] → RabbitMQ Exchange [${exchange}]`);
-    // console.log(payload);
-    
-    channel.publish(exchange, "", Buffer.from(payload)); // no routing key in fanout
+ client.on("message", (topic, message) => {
+  let parsed;
+  try {
+    parsed = JSON.parse(message.toString());
+  } catch (e) {
+    console.error("❌ Invalid JSON from MQTT:", e.message);
+    return;
+  }
+
+  const payload = JSON.stringify({
+    topic,
+    ...parsed,   // spread values directly
+    ts: Date.now(),
   });
+
+  console.log(`📥 MQTT [${topic}] → RabbitMQ Exchange [${exchange}]`);
+  channel.publish(exchange, "", Buffer.from(payload), { persistent: true });
+});
+
 }
 
 startBridge().catch(console.error);
