@@ -2,65 +2,95 @@ const amqp = require("amqplib");
 const { PrismaClient } = require("../../generated/prisma");
 const prisma = new PrismaClient();
 
-const amqpUrl = "amqp://mowlee:mowlee12345@192.168.56.10:5672";
-const exchange = "mqtt_fanout";
+const amqpUrl = process.env.AMQP_URL || "amqp://mowlee:mowlee12345@192.168.56.10:5672";
+const exchange = process.env.AMQP_EXCHANGE || "mqtt_fanout";
+const queueName = process.env.AMQP_QUEUE || "node_db_queue";
 
-let buffer = []; // in-memory batch storage
-const BATCH_SIZE = 50; // flush after 50 msgs
-const BATCH_INTERVAL = 2000; // flush every 2s if not full
-let flushTimer = null;
+const BATCH_SIZE = 50;
+const BATCH_INTERVAL = 2000;
 
-async function startConsumer() {
-  const conn = await amqp.connect(amqpUrl);
-  const channel = await conn.createChannel();
+let buffer = [];
+let amqpChannel = null;
+const RETRY_INTERVAL = 3000; // 3 seconds
 
-  await channel.assertExchange(exchange, "fanout", { durable: true });
-  const { queue } = await channel.assertQueue("node_db_queue", { durable: true });
-  await channel.bindQueue(queue, exchange);
+// ----------------------
+// RabbitMQ Connection
+// ----------------------
+async function connectRabbitMQ() {
+  try {
+    const conn = await amqp.connect(amqpUrl);
+    const channel = await conn.createChannel();
+    await channel.assertExchange(exchange, "fanout", { durable: true });
+    const { queue } = await channel.assertQueue(queueName, { durable: true });
+    await channel.bindQueue(queue, exchange);
 
-  console.log("💾 Database Consumer listening...");
+    amqpChannel = channel;
 
-  // helper: flush batch to DB
-  async function flushBatch() {
-    if (buffer.length === 0) return;
+    console.log(`💾 Database Consumer listening on queue [${queueName}]`);
 
-    const batch = buffer;
-    buffer = []; // reset buffer
+    // Start consuming messages
+    channel.consume(queue, handleMessage);
 
-    try {
+  } catch (err) {
+    console.error("❌ RabbitMQ connection failed, retrying in 3s...", err.message);
+    setTimeout(connectRabbitMQ, RETRY_INTERVAL);
+  }
+}
+
+// ----------------------
+// Handle incoming messages
+// ----------------------
+async function handleMessage(msg) {
+  if (!msg) return;
+
+  let payload;
+  try {
+    payload = JSON.parse(msg.content.toString());
+  } catch (err) {
+    console.error("❌ Invalid JSON received, message skipped:", err.message);
+    amqpChannel.ack(msg); // skip bad message
+    return;
+  }
+
+  buffer.push({ ...payload, _rawMsg: msg });
+
+  // Flush immediately if batch full
+  if (buffer.length >= BATCH_SIZE) {
+    flushBatch();
+  }
+}
+
+// ----------------------
+// Flush buffer to DB
+// ----------------------
+async function flushBatch() {
+  if (buffer.length === 0 || !amqpChannel) return;
+
+  const batch = buffer;
+  buffer = [];
+
+  try {
     await prisma.nodedata.createMany({
-      data: batch.map((msg) => {
-        const { _rawMsg, ...clean } = msg; // remove RabbitMQ metadata
-        return {
-          data: clean, // store only your IoT JSON
-        };
+      data: batch.map((item) => {
+        const { _rawMsg, ...clean } = item;
+        return { data: clean };
       }),
     });
 
-      console.log(`✅ Inserted batch of ${batch.length}`);
-      // Ack all after DB success
-      batch.forEach((b) => channel.ack(b._rawMsg));
-    } catch (err) {
-      console.error("❌ DB insert failed, requeueing batch:", err);
-      // nack all → messages stay in queue
-      batch.forEach((b) => channel.nack(b._rawMsg, false, true));
-    }
+    console.log(`✅ Inserted batch of ${batch.length} records`);
+    batch.forEach((b) => amqpChannel.ack(b._rawMsg));
+  } catch (err) {
+    console.error("❌ DB insert failed, requeueing batch:", err.message);
+    batch.forEach((b) => amqpChannel.nack(b._rawMsg, false, true));
   }
-
-  // periodic flush
-  setInterval(flushBatch, BATCH_INTERVAL);
-
-  channel.consume(queue, (msg) => {
-    const payload = JSON.parse(msg.content.toString());
-
-    // push into buffer with raw message reference for ack/nack
-    buffer.push({ ...payload, _rawMsg: msg });
-
-    // if batch full → flush immediately
-    if (buffer.length >= BATCH_SIZE) {
-      flushBatch();
-    }
-  });
 }
 
-startConsumer().catch(console.error);
+// ----------------------
+// Periodic flush
+// ----------------------
+setInterval(flushBatch, BATCH_INTERVAL);
+
+// ----------------------
+// Start consumer
+// ----------------------
+connectRabbitMQ().catch((err) => console.error("Consumer startup failed:", err));

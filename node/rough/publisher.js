@@ -26,5 +26,7 @@ client.on("connect", () => {
         console.log(`📤 Published → ${topic}: ${payload}`);
       }
     });
-  }, 1000); // every 2 seconds
+  }, 5000); // every 2 seconds
 });
+
+

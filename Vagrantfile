@@ -35,6 +35,20 @@ Vagrant.configure("2") do |config|
     apt-get install -y apache2 php libapache2-mod-php php-mysql php-mbstring git \
                        mosquitto mosquitto-clients
 
+    echo "📦 Installing PHP AMQP extension..."
+    apt-get install -y php-amqp
+
+    echo "📦 Installing Node.js (LTS) and npm..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs build-essential
+
+    echo "📦 Installing PM2 globally..."
+    npm install -g pm2
+
+    echo "⚙️ Configuring PM2 to auto-start on reboot..."
+    pm2 startup systemd -u vagrant --hp /home/vagrant
+    pm2 save
+
     echo "📂 Setting permissions for /var/www/html..."
     chown -R vagrant:vagrant /var/www/html
     chmod -R 755 /var/www/html
