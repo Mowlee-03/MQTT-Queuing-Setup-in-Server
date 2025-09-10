@@ -3,7 +3,7 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
-
+const admin = require("firebase-admin")
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 
@@ -21,6 +21,18 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
+
+app.post("/api/subscribe-topic", async (req, res) => {
+  const { token, topic } = req.body;
+  try {
+    await admin.messaging().subscribeToTopic(token, topic);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 require("./services/rabbit/DbConsumer")
 // catch 404 and forward to error handler

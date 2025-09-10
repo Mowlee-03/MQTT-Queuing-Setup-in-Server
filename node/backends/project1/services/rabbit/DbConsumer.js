@@ -94,3 +94,4 @@ setInterval(flushBatch, BATCH_INTERVAL);
 // Start consumer
 // ----------------------
 connectRabbitMQ().catch((err) => console.error("Consumer startup failed:", err));
+
