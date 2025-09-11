@@ -1,10 +1,10 @@
 const mqtt = require("mqtt");
 const amqp = require("amqplib");
 
-const mqttUrl = process.env.MQTT_HOST || "mqtt://192.168.56.10:1883";
+const mqttUrl = process.env.MQTT_HOST || "mqtt://itankmqtt.ifacerts.in:1883";
 const mqttOptions = {
-  username: process.env.MQTT_USER || "mowlee",
-  password: process.env.MQTT_PASS || "mowlee12345"
+  username: process.env.MQTT_USER || "mqttadmin",
+  password: process.env.MQTT_PASS || "sQyKYRJFO+spAyPUNXc21egs"
 };
 
 const amqpUrl = process.env.AMQP_URL || "amqp://mowlee:mowlee12345@192.168.56.10:5672";

@@ -1,0 +1,6 @@
+node_modules
+
+/generated/prisma
+
+# .gitignore
+/services/firebase/firebase-service-account-realtech.json
