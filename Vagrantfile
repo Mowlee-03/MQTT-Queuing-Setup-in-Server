@@ -18,7 +18,7 @@ Vagrant.configure("2") do |config|
   config.vm.synced_folder "mowlee", "/var/www/html", owner: "vagrant", group: "vagrant"
 
   # Node.js app folder
-  config.vm.synced_folder "node", "/home/vagrant/node", owner: "vagrant", group: "vagrant"
+  config.vm.synced_folder "node", "/home/vagrant/node", owner: "vagrant", group: "vagrant" , rsync__exclude: ["node_modules"]
   # ✅ Set CPU and RAM
   config.vm.provider "virtualbox" do |vb|
     vb.memory = "2048"       # 2 GB RAM

@@ -3,16 +3,20 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
-const admin = require("firebase-admin")
+const admin = require("./services/firebase/firebase")
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
-
+var cors = require("cors")
 var app = express();
+
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
 
+app.use(cors({
+  origin:"*"
+}))
 app.use(logger('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -35,6 +39,7 @@ app.post("/api/subscribe-topic", async (req, res) => {
 
 
 require("./services/rabbit/DbConsumer")
+require("./services/rabbit/Notify")
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
   next(createError(404));

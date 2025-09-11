@@ -1,5 +1,5 @@
 const amqp = require("amqplib");
-const admin = require("firebase-admin");
+const admin = require("../firebase/firebase");
 
 const amqpUrl = process.env.AMQP_URL || "amqp://mowlee:mowlee12345@192.168.56.10:5672";
 const exchange = process.env.AMQP_EXCHANGE || "mqtt_fanout";
@@ -13,9 +13,7 @@ let amqpChannel = null;
 // ----------------------
 // Firebase Setup
 // ----------------------
-admin.initializeApp({
-  credential: admin.credential.cert(require("../firebase/firebase-service-account-realtech.json")), // <-- service account json from Firebase
-});
+
 
 const fcm = admin.messaging();
 
@@ -67,17 +65,23 @@ async function handleMessage(msg) {
     return;
   }
 
-  const state = deviceState[deviceId] || { alertActive: false, lastValue: null };
+  const state = deviceState[deviceId] || { alertActive: false, lastValue: null, lastAlertSent: null };
 
+  // Above threshold
   if (value > MAX_VALUE) {
-    if (!state.alertActive) {
+    if (!state.alertActive || state.lastAlertSent !== "alert") {
       state.alertActive = true;
-      await sendNotification(deviceId, value, ts);
+      state.lastAlertSent = "alert";
+      await sendNotification(deviceId, value, ts, true); // true = alert
     }
-  } else {
-    if (state.alertActive) {
-      console.log(`✅ Device ${deviceId} back to normal (${value})`);
+  } 
+  // Below threshold
+  else {
+    if (state.alertActive || state.lastAlertSent !== "safe") {
       state.alertActive = false;
+      state.lastAlertSent = "safe";
+      await sendNotification(deviceId, value, ts, false); // false = safe
+      console.log(`✅ Device ${deviceId} back to normal (${value})`);
     }
   }
 
@@ -87,21 +91,25 @@ async function handleMessage(msg) {
   amqpChannel.ack(msg);
 }
 
+
 // ----------------------
 // Send notification via Firebase
 // ----------------------
-async function sendNotification(deviceId, value, ts) {
+async function sendNotification(deviceId, value, ts, isAlert) {
   const message = {
     notification: {
-      title: `⚠️ Device ${deviceId} Alert`,
-      body: `Value ${value} exceeded threshold (${MAX_VALUE})`,
+      title: isAlert ? `⚠️ Device ${deviceId} Alert` : `✅ Device ${deviceId} Safe`,
+      body: isAlert
+        ? `Value ${value} exceeded threshold (${MAX_VALUE})`
+        : `Value back to safe (${value})`,
     },
     data: {
       deviceId: String(deviceId),
       value: String(value),
       timestamp: String(ts),
+      status: isAlert ? "alert" : "safe",
     },
-    topic: `device_${deviceId}`, // 👈 all frontends subscribed to this topic will receive
+    topic: `device_${deviceId}`,
   };
 
   try {
@@ -111,6 +119,7 @@ async function sendNotification(deviceId, value, ts) {
     console.error("❌ Failed to send notification:", err.message);
   }
 }
+
 
 // ----------------------
 // Start

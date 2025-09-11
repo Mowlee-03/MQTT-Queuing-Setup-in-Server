@@ -14,9 +14,9 @@ client.on("connect", () => {
     const now = new Date();
 
     const message = {
-      value:"Hello from Node.JS!!"+ Math.floor(Math.random() * 100), // random number
-      datetime: now.toISOString(), // UTC ISO string
-      localtime: now.toLocaleString(), // local time
+      deviceId:"2",
+      value:Math.floor(Math.random() * 150), // random number
+      ts: now.toLocaleString(), // local time
     };
 
     const payload = JSON.stringify(message);
