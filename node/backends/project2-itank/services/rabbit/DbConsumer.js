@@ -1,6 +1,9 @@
 const amqp = require("amqplib");
-const { PrismaClient } = require("../../generated/prisma");
-const prisma = new PrismaClient();
+const { PrismaClient: ImeiClient } = require("../../generated/imei");
+const { PrismaClient: AppClient } = require("../../generated/app");
+
+const ImeiDB = new ImeiClient();
+const AppDB = new AppClient();
 
 const amqpUrl = process.env.AMQP_URL || "amqp://mowlee:mowlee12345@192.168.56.10:5672";
 const exchange = process.env.AMQP_EXCHANGE || "itank_fanout";
@@ -8,10 +11,10 @@ const queueName = process.env.AMQP_QUEUE || "node_itank_db_queue";
 
 const BATCH_SIZE = 50;
 const BATCH_INTERVAL = 2000;
+const RETRY_INTERVAL = 3000;
 
 let buffer = [];
 let amqpChannel = null;
-const RETRY_INTERVAL = 3000; // 3 seconds
 
 // ----------------------
 // RabbitMQ Connection
@@ -25,12 +28,9 @@ async function connectRabbitMQ() {
     await channel.bindQueue(queue, exchange);
 
     amqpChannel = channel;
-
     console.log(`💾 Database Consumer listening on queue [${queueName}]`);
 
-    // Start consuming messages
     channel.consume(queue, handleMessage);
-
   } catch (err) {
     console.error("❌ RabbitMQ connection failed, retrying in 3s...", err.message);
     setTimeout(connectRabbitMQ, RETRY_INTERVAL);
@@ -45,9 +45,9 @@ async function handleMessage(msg) {
 
   let payload;
   try {
-    payload = JSON.parse(msg.content.toString()); // { topic, raw }
+    payload = JSON.parse(msg.content.toString());
   } catch (err) {
-    console.error("❌ Invalid JSON received, message skipped:", err.message);
+    console.error("❌ Invalid JSON, message skipped:", err.message);
     amqpChannel.ack(msg);
     return;
   }
@@ -65,7 +65,7 @@ async function handleMessage(msg) {
 async function ensureImeiTable(imei) {
   const tableName = `${imei}`;
 
-  await prisma.$executeRawUnsafe(`
+  await ImeiDB.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS \`${tableName}\` (
       id INT AUTO_INCREMENT PRIMARY KEY,
       data TEXT NOT NULL,
@@ -85,33 +85,41 @@ async function flushBatch() {
   const batch = buffer;
   buffer = [];
 
-  try {
-    for (const item of batch) {
-      const { topic, raw, _rawMsg } = item;
-      const parts = topic.split("/"); // topic = tank/<imei>
-      const imei = parts[1];
+  for (const item of batch) {
+    const { topic, raw, _rawMsg } = item;
+    const parts = topic.split("/"); 
+    const imei = parts[1];
 
-      if (!imei) {
-        console.log("⚠️ Skipping message without IMEI topic:", topic,raw);
-        amqpChannel.ack(_rawMsg);
-        continue;
-      }
+    if (!imei) {
+      console.warn("⚠️ Skipping message without IMEI topic:", topic, raw);
+      amqpChannel.ack(_rawMsg);
+      continue;
+    }
 
+    try {
       const tableName = await ensureImeiTable(imei);
 
-      await prisma.$executeRawUnsafe(
+
+
+      await ImeiDB.$executeRawUnsafe(
         `INSERT INTO \`${tableName}\` (data) VALUES (?)`,
         raw
       );
 
-      amqpChannel.ack(_rawMsg);
-    }
+      await AppDB.itankLatestLog.upsert({
+        where: { imei },
+        update: { data: raw, updated_at: new Date() },
+        create: { imei, data: raw },
+      });
 
-    console.log(`✅ Inserted batch of ${batch.length} records`);
-  } catch (err) {
-    console.error("❌ DB insert failed, requeueing batch:", err.message);
-    batch.forEach((b) => amqpChannel.nack(b._rawMsg, false, true));
+      amqpChannel.ack(_rawMsg);
+    } catch (err) {
+      console.error(`❌ DB insert failed for IMEI ${imei}, requeueing:`, err.message);
+      amqpChannel.nack(_rawMsg, false, true);
+    }
   }
+
+  console.log(`✅ Flushed batch of ${batch.length} messages`);
 }
 
 // ----------------------
@@ -122,4 +130,4 @@ setInterval(flushBatch, BATCH_INTERVAL);
 // ----------------------
 // Start consumer
 // ----------------------
-connectRabbitMQ().catch((err) => console.error("Consumer startup failed:", err));
+connectRabbitMQ().catch(err => console.error("Consumer startup failed:", err));

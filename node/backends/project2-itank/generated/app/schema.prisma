@@ -1,0 +1,17 @@
+generator prismaClient {
+  provider = "prisma-client-js"
+  output   = "../../generated/app"
+}
+
+datasource appdb {
+  provider = "mysql"
+  url      = env("DATABASE_URL_APP")
+}
+
+model itankLatestLog {
+  id         Int      @id @default(autoincrement())
+  imei       String   @unique
+  data       String   @appdb.Text
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}

@@ -1,0 +1,12 @@
+generator imeiClient {
+  provider = "prisma-client-js"
+  output   = "../../generated/imei"
+}
+
+datasource imeidb {
+  provider = "mysql"
+  url      = env("DATABASE_URL_IMEI") // for dynamic IMEI tables
+}
+
+// ⚠️ No models here because tables are dynamic.
+// You will only use $executeRawUnsafe and $queryRaw.

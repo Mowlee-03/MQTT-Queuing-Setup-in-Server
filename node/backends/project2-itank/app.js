@@ -39,6 +39,8 @@ app.post("/api/subscribe-topic", async (req, res) => {
 
 
 require("./services/rabbit/DbConsumer")
+require("./services/rabbit/logConsumer")
+
 // require("./services/rabbit/Notify")
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
